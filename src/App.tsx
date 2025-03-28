@@ -1,77 +1,13 @@
-// src/App.tsx
-import React, { useState, useEffect } from 'react';
-import PasswordPrompt from './components/PasswordPrompt.tsx';
+import React, { useState } from 'react';
+import axios from 'axios';
 import './App.css';
-import { transcribeAudio, validateLeadWithOpenAI } from './services/api.ts';
 import { ValidationResult } from './types';
 import FileUpload from './components/FileUpload.tsx';
 import ValidationResultComponent from './components/ValidationResult.tsx';
-import config from './config';
 import * as zipcodes from 'zipcodes';
-import { verifyContact } from './services/melissaApi.ts';
 import { isValidZipCode } from './util.ts';
 
 const App: React.FC = () => {
-  // Password protection state
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return localStorage.getItem('isAuthenticated') === 'true';
-  });
-
-  const [storedPassword, setStoredPassword] = useState(() => {
-    return localStorage.getItem('lastUsedPassword') || '';
-  });
-
-  const currentPassword = process.env.REACT_APP_ACCESS_PASSWORD || 'defaultpassword';
-
-  // Re-validate authentication if the password has changed
-  useEffect(() => {
-    if (isAuthenticated && storedPassword !== currentPassword) {
-      setIsAuthenticated(false);
-      localStorage.removeItem('isAuthenticated');
-    }
-  }, [isAuthenticated, storedPassword, currentPassword]);
-
-  // Update localStorage when authentication state or password changes
-  useEffect(() => {
-    localStorage.setItem('isAuthenticated', String(isAuthenticated));
-    if (isAuthenticated) {
-      localStorage.setItem('lastUsedPassword', currentPassword);
-      setStoredPassword(currentPassword);
-    }
-  }, [isAuthenticated, currentPassword]);
-
-  const handlePasswordCorrect = () => {
-    setIsAuthenticated(true);
-  };
-
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    localStorage.removeItem('isAuthenticated');
-    localStorage.removeItem('lastUsedPassword');
-    setStoredPassword('');
-  };
-
-  // Existing state for file upload and validation
-  console.log(
-    'Deepgram API Key:',
-    process.env.REACT_APP_DEEPGRAM_API_KEY
-      ? 'Set (length: ' + process.env.REACT_APP_DEEPGRAM_API_KEY.length + ')'
-      : 'Not set'
-  );
-  console.log(
-    'OpenAI API Key:',
-    process.env.REACT_APP_OPENAI_API_KEY
-      ? 'Set (length: ' + process.env.REACT_APP_OPENAI_API_KEY.length + ')'
-      : 'Not set'
-  );
-  console.log(
-    'Melissa API Key:',
-    process.env.REACT_APP_MELISSA_API_KEY
-      ? 'Set (length: ' + process.env.REACT_APP_MELISSA_API_KEY.length + ')'
-      : 'Not set'
-  );
-
-  const [, setFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [transcript, setTranscript] = useState<string>('');
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
@@ -81,9 +17,27 @@ const App: React.FC = () => {
     return match ? match[0] : '';
   };
 
+  const getTranscription = async (file: File): Promise<string> => {
+    try {
+      const formData = new FormData();
+      formData.append('audio', file);
+
+      const response = await axios.post('https://api.deepgram.com/v1/listen', formData, {
+        headers: {
+          Authorization: `Token ${process.env.REACT_APP_DEEPGRAM_API_KEY}`,
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      return response.data.results.channels[0].alternatives[0].transcript;
+    } catch (error) {
+      console.error('Error with transcription:', error);
+      alert('Error transcribing audio: ' + (error as Error).message);
+      throw error;
+    }
+  };
+
   const processFile = async (file: File) => {
     setIsLoading(true);
-    setFile(file);
 
     try {
       const phoneNumber = extractPhoneFromFilename(file.name);
@@ -123,7 +77,6 @@ const App: React.FC = () => {
             currentProvider: '',
           },
           agentFeedback: {
-            // Added agentFeedback to match the updated types.ts
             askedForCallbackNumber: false,
             askedForFirstAndLastName: false,
             askedForVehicleYearMakeModel: false,
@@ -137,12 +90,24 @@ const App: React.FC = () => {
         melissaLookupAttempted: false,
       };
 
-      if (phoneNumber && process.env.REACT_APP_MELISSA_API_KEY) {
+      if (phoneNumber) {
         try {
           console.log('Querying Melissa with phone number...');
-          melissaData = await verifyContact({ phoneNumber });
+          const response = await axios.get(
+            `https://personator.melissadata.net/v3/WEB/ContactVerify/doContactVerify`,
+            {
+              params: {
+                t: 'test',
+                id: process.env.REACT_APP_MELISSA_API_KEY,
+                act: 'Check',
+                phone: phoneNumber,
+                format: 'JSON',
+              },
+            }
+          );
+          melissaData = response.data;
 
-          result.melissaLookupAttempted = melissaData.melissaLookupAttempted;
+          result.melissaLookupAttempted = true;
 
           if (melissaData.firstName) {
             result.extractedData.firstName = melissaData.firstName;
@@ -207,10 +172,10 @@ const App: React.FC = () => {
           result.manualReviewReasons = ['Failed to retrieve data from Melissa'];
         }
       } else {
-        console.log('Skipping Melissa verification - no phone number or API key');
+        console.log('Skipping Melissa verification - no phone number');
         result.melissaLookupAttempted = false;
         result.needsManualReview = true;
-        result.manualReviewReasons = ['No phone number or Melissa API key available'];
+        result.manualReviewReasons = ['No phone number available'];
       }
 
       const transcription = await getTranscription(file);
@@ -233,26 +198,45 @@ const App: React.FC = () => {
           }
         : undefined;
 
-      const openAIResult = await validateLeadWithOpenAI(transcription, phoneNumber, {
-        melissaData: melissaContext,
-      });
-
-      if (openAIResult) {
-        const mergedResult: ValidationResult = {
-          ...openAIResult,
-          extractedData: {
-            ...openAIResult.extractedData,
-            firstName: result.extractedData.firstName || openAIResult.extractedData.firstName || '',
-            lastName: result.extractedData.lastName || openAIResult.extractedData.lastName || '',
-            address: result.extractedData.address || openAIResult.extractedData.address || '',
-            city: result.extractedData.city || openAIResult.extractedData.city || '',
-            state: result.extractedData.state || openAIResult.extractedData.state || '',
-            zip: result.extractedData.zip || openAIResult.extractedData.zip || '',
-            phoneNumber: phoneNumber || openAIResult.extractedData.phoneNumber || '',
-            email: melissaData?.melissaData?.email || openAIResult.extractedData.email || '',
-            dob: melissaData?.melissaData?.dob || openAIResult.extractedData.dob || '',
+      const openAIResult = await axios.post(
+        'https://api.openai.com/v1/chat/completions',
+        {
+          model: 'gpt-3.5-turbo',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a lead validation assistant. Validate the lead based on the transcript and provided data.',
+            },
+            {
+              role: 'user',
+              content: `Transcript: ${transcription}\nPhone Number: ${phoneNumber}\nMelissa Data: ${JSON.stringify(melissaContext)}`,
+            },
+          ],
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.REACT_APP_OPENAI_API_KEY}`,
+            'Content-Type': 'application/json',
           },
-          melissaData: openAIResult.melissaData || {
+        }
+      );
+
+      if (openAIResult.data.result) {
+        const mergedResult: ValidationResult = {
+          ...openAIResult.data.result,
+          extractedData: {
+            ...openAIResult.data.result.extractedData,
+            firstName: result.extractedData.firstName || openAIResult.data.result.extractedData.firstName || '',
+            lastName: result.extractedData.lastName || openAIResult.data.result.extractedData.lastName || '',
+            address: result.extractedData.address || openAIResult.data.result.extractedData.address || '',
+            city: result.extractedData.city || openAIResult.data.result.extractedData.city || '',
+            state: result.extractedData.state || openAIResult.data.result.extractedData.state || '',
+            zip: result.extractedData.zip || openAIResult.data.result.extractedData.zip || '',
+            phoneNumber: phoneNumber || openAIResult.data.result.extractedData.phoneNumber || '',
+            email: melissaData?.melissaData?.email || openAIResult.data.result.extractedData.email || '',
+            dob: melissaData?.melissaData?.dob || openAIResult.data.result.extractedData.dob || '',
+          },
+          melissaData: openAIResult.data.result.melissaData || {
             firstName: melissaData?.melissaData?.firstName,
             lastName: melissaData?.melissaData?.lastName,
             address: melissaData?.melissaData?.address,
@@ -285,44 +269,41 @@ const App: React.FC = () => {
         }
 
         if (
-          openAIResult.extractedData.firstName &&
+          openAIResult.data.result.extractedData.firstName &&
           result.extractedData.firstName &&
-          openAIResult.extractedData.firstName.toLowerCase() !== result.extractedData.firstName.toLowerCase()
+          openAIResult.data.result.extractedData.firstName.toLowerCase() !== result.extractedData.firstName.toLowerCase()
         ) {
-          mergedResult.transcriptFirstName = openAIResult.extractedData.firstName;
+          mergedResult.transcriptFirstName = openAIResult.data.result.extractedData.firstName;
         }
 
         if (
-          openAIResult.extractedData.lastName &&
+          openAIResult.data.result.extractedData.lastName &&
           result.extractedData.lastName &&
-          openAIResult.extractedData.lastName.toLowerCase() !== result.extractedData.lastName.toLowerCase()
+          openAIResult.data.result.extractedData.lastName.toLowerCase() !== result.extractedData.lastName.toLowerCase()
         ) {
-          mergedResult.transcriptLastName = openAIResult.extractedData.lastName;
+          mergedResult.transcriptLastName = openAIResult.data.result.extractedData.lastName;
         }
 
         if (
-          openAIResult.extractedData.address &&
+          openAIResult.data.result.extractedData.address &&
           result.extractedData.address &&
-          openAIResult.extractedData.address.toLowerCase() !== result.extractedData.address.toLowerCase()
+          openAIResult.data.result.extractedData.address.toLowerCase() !== result.extractedData.address.toLowerCase()
         ) {
-          mergedResult.transcriptAddress = openAIResult.extractedData.address;
+          mergedResult.transcriptAddress = openAIResult.data.result.extractedData.address;
         }
 
         if (
-          openAIResult.extractedData.zip &&
+          openAIResult.data.result.extractedData.zip &&
           result.extractedData.zip &&
-          openAIResult.extractedData.zip !== result.extractedData.zip
+          openAIResult.data.result.extractedData.zip !== result.extractedData.zip
         ) {
-          mergedResult.transcriptZip = openAIResult.extractedData.zip;
+          mergedResult.transcriptZip = openAIResult.data.result.extractedData.zip;
         }
 
         const discrepancies = [];
-        if (mergedResult.transcriptFirstName)
-          discrepancies.push('First name differs between Melissa and transcript');
-        if (mergedResult.transcriptLastName)
-          discrepancies.push('Last name differs between Melissa and transcript');
-        if (mergedResult.transcriptAddress)
-          discrepancies.push('Address differs between Melissa and transcript');
+        if (mergedResult.transcriptFirstName) discrepancies.push('First name differs between Melissa and transcript');
+        if (mergedResult.transcriptLastName) discrepancies.push('Last name differs between Melissa and transcript');
+        if (mergedResult.transcriptAddress) discrepancies.push('Address differs between Melissa and transcript');
         if (mergedResult.transcriptZip) discrepancies.push('ZIP code differs between Melissa and transcript');
 
         if (discrepancies.length > 0) {
@@ -347,60 +328,42 @@ const App: React.FC = () => {
     }
   };
 
-  const getTranscription = async (file: File): Promise<string> => {
-    try {
-      const transcript = await transcribeAudio(file);
-      console.log('Transcription successful:', transcript);
-      return transcript;
-    } catch (error) {
-      console.error('Error with Deepgram transcription:', error);
-      alert('Error transcribing audio: ' + (error as Error).message);
-      throw error;
-    }
-  };
-
   return (
     <div className="app-container">
-      {isAuthenticated ? (
-        <>
-          <header>
-            <div className="logo">
-              <h1>
-                QUIN<span>AI</span>
-              </h1>
-            </div>
-          </header>
+      <header>
+        <div className="logo">
+          <h1>
+            QUIN<span>AI</span>
+          </h1>
+        </div>
+      </header>
 
-          <main className="content">
-            <div className="qa-container">
-              <FileUpload onFileSelect={processFile} />
+      <main className="content">
+        <div className="qa-container">
+          <FileUpload onFileSelect={processFile} />
 
-              <div className="result-container">
-                <h2>AI QA Result{isLoading ? '...' : ''}</h2>
+          <div className="result-container">
+            <h2>AI QA Result{isLoading ? '...' : ''}</h2>
 
-                {isLoading && (
-                  <div className="loading">
-                    <div className="spinner"></div>
-                    <p>Processing audio file...</p>
-                  </div>
-                )}
-
-                {!isLoading && validationResult && (
-                  <ValidationResultComponent result={validationResult} transcript={transcript} />
-                )}
-
-                {!isLoading && !validationResult && (
-                  <div className="no-result">
-                    <p>Upload an audio file to see QA results</p>
-                  </div>
-                )}
+            {isLoading && (
+              <div className="loading">
+                <div className="spinner"></div>
+                <p>Processing audio file...</p>
               </div>
-            </div>
-          </main>
-        </>
-      ) : (
-        <PasswordPrompt onPasswordCorrect={handlePasswordCorrect} />
-      )}
+            )}
+
+            {!isLoading && validationResult && (
+              <ValidationResultComponent result={validationResult} transcript={transcript} />
+            )}
+
+            {!isLoading && !validationResult && (
+              <div className="no-result">
+                <p>Upload an audio file to see QA results</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </main>
     </div>
   );
 };
