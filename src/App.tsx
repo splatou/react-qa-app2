@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+// src/App.tsx
+import React, { useState, useEffect } from 'react';
+import PasswordPrompt from './components/PasswordPrompt.tsx';
 import './App.css';
 import { transcribeAudio, validateLeadWithOpenAI } from './services/api.ts';
 import { ValidationResult } from './types';
@@ -10,9 +12,64 @@ import { verifyContact } from './services/melissaApi.ts';
 import { isValidZipCode } from './util.ts';
 
 const App: React.FC = () => {
-  console.log("Deepgram API Key:", process.env.REACT_APP_DEEPGRAM_API_KEY ? "Set (length: " + process.env.REACT_APP_DEEPGRAM_API_KEY.length + ")" : "Not set");
-  console.log("OpenAI API Key:", process.env.REACT_APP_OPENAI_API_KEY ? "Set (length: " + process.env.REACT_APP_OPENAI_API_KEY.length + ")" : "Not set");
-  console.log("Melissa API Key:", process.env.REACT_APP_MELISSA_API_KEY ? "Set (length: " + process.env.REACT_APP_MELISSA_API_KEY.length + ")" : "Not set");
+  // Password protection state
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return localStorage.getItem('isAuthenticated') === 'true';
+  });
+
+  const [storedPassword, setStoredPassword] = useState(() => {
+    return localStorage.getItem('lastUsedPassword') || '';
+  });
+
+  const currentPassword = process.env.REACT_APP_ACCESS_PASSWORD || 'defaultpassword';
+
+  // Re-validate authentication if the password has changed
+  useEffect(() => {
+    if (isAuthenticated && storedPassword !== currentPassword) {
+      setIsAuthenticated(false);
+      localStorage.removeItem('isAuthenticated');
+    }
+  }, [isAuthenticated, storedPassword, currentPassword]);
+
+  // Update localStorage when authentication state or password changes
+  useEffect(() => {
+    localStorage.setItem('isAuthenticated', String(isAuthenticated));
+    if (isAuthenticated) {
+      localStorage.setItem('lastUsedPassword', currentPassword);
+      setStoredPassword(currentPassword);
+    }
+  }, [isAuthenticated, currentPassword]);
+
+  const handlePasswordCorrect = () => {
+    setIsAuthenticated(true);
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    localStorage.removeItem('isAuthenticated');
+    localStorage.removeItem('lastUsedPassword');
+    setStoredPassword('');
+  };
+
+  // Existing state for file upload and validation
+  console.log(
+    'Deepgram API Key:',
+    process.env.REACT_APP_DEEPGRAM_API_KEY
+      ? 'Set (length: ' + process.env.REACT_APP_DEEPGRAM_API_KEY.length + ')'
+      : 'Not set'
+  );
+  console.log(
+    'OpenAI API Key:',
+    process.env.REACT_APP_OPENAI_API_KEY
+      ? 'Set (length: ' + process.env.REACT_APP_OPENAI_API_KEY.length + ')'
+      : 'Not set'
+  );
+  console.log(
+    'Melissa API Key:',
+    process.env.REACT_APP_MELISSA_API_KEY
+      ? 'Set (length: ' + process.env.REACT_APP_MELISSA_API_KEY.length + ')'
+      : 'Not set'
+  );
 
   const [, setFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -27,7 +84,7 @@ const App: React.FC = () => {
   const processFile = async (file: File) => {
     setIsLoading(true);
     setFile(file);
-    
+
     try {
       const phoneNumber = extractPhoneFromFilename(file.name);
       if (!phoneNumber) {
@@ -35,7 +92,7 @@ const App: React.FC = () => {
       } else {
         console.log(`Extracted phone number: ${phoneNumber}`);
       }
-      
+
       let melissaData: any | null = null;
       let result: ValidationResult = {
         status: 'needs_review',
@@ -52,77 +109,88 @@ const App: React.FC = () => {
           dob: '',
           autoInsurance: {
             mainVehicle: { year: '', make: '', model: '' },
-            currentProvider: ''
+            currentProvider: '',
           },
           homeInsurance: {
             interested: null,
             ownership: '',
             homeType: '',
-            currentProvider: ''
+            currentProvider: '',
           },
           healthInsurance: {
             interested: null,
             householdSize: null,
-            currentProvider: ''
-          }
+            currentProvider: '',
+          },
+          agentFeedback: {
+            // Added agentFeedback to match the updated types.ts
+            askedForCallbackNumber: false,
+            askedForFirstAndLastName: false,
+            askedForVehicleYearMakeModel: false,
+            askedForSecondaryVehicle: false,
+            askedForCurrentInsuranceProvider: false,
+            askedForOwnRentHome: false,
+            askedForDob: false,
+            askedForAddress: false,
+          },
         },
-        melissaLookupAttempted: false
+        melissaLookupAttempted: false,
       };
-      
+
       if (phoneNumber && process.env.REACT_APP_MELISSA_API_KEY) {
         try {
-          console.log("Querying Melissa with phone number...");
+          console.log('Querying Melissa with phone number...');
           melissaData = await verifyContact({ phoneNumber });
-          
+
           result.melissaLookupAttempted = melissaData.melissaLookupAttempted;
-          
+
           if (melissaData.firstName) {
             result.extractedData.firstName = melissaData.firstName;
             result.nameFromMelissa = true;
           }
-          
+
           if (melissaData.lastName) {
             result.extractedData.lastName = melissaData.lastName;
             result.nameFromMelissa = true;
           }
-          
+
           if (melissaData.address) {
             result.extractedData.address = melissaData.address;
             result.addressFromMelissa = true;
           }
-          
+
           if (melissaData.city) {
             result.extractedData.city = melissaData.city;
           }
-          
+
           if (melissaData.state) {
             result.extractedData.state = melissaData.state;
           }
-          
+
           if (melissaData.zip) {
             result.extractedData.zip = melissaData.zip;
-            
+
             if (!isValidZipCode(melissaData.zip)) {
               result.invalidZip = true;
               result.needsManualReview = true;
-              result.manualReviewReasons = ["Invalid ZIP code from Melissa"];
+              result.manualReviewReasons = ['Invalid ZIP code from Melissa'];
             }
           }
-          
+
           result.nameVerified = melissaData.isNameVerified;
           result.addressVerified = melissaData.isAddressVerified;
           result.melissaAddressFound = melissaData.melissaAddressFound;
           result.melissaNameFound = melissaData.melissaNameFound;
-          
+
           if (melissaData.suggestedAddress) {
             result.suggestedAddress = melissaData.suggestedAddress;
           }
-          
+
           if (melissaData.suggestedName) {
             result.suggestedName = melissaData.suggestedName;
           }
-          
-          console.log("Data obtained from Melissa:", {
+
+          console.log('Data obtained from Melissa:', {
             firstName: result.extractedData.firstName,
             lastName: result.extractedData.lastName,
             address: result.extractedData.address,
@@ -130,45 +198,45 @@ const App: React.FC = () => {
             state: result.extractedData.state,
             zip: result.extractedData.zip,
             nameVerified: result.nameVerified,
-            addressVerified: result.addressVerified
+            addressVerified: result.addressVerified,
           });
         } catch (melissaError) {
           console.error('Error with Melissa lookup:', melissaError);
           result.melissaLookupAttempted = false;
           result.needsManualReview = true;
-          result.manualReviewReasons = ["Failed to retrieve data from Melissa"];
+          result.manualReviewReasons = ['Failed to retrieve data from Melissa'];
         }
       } else {
         console.log('Skipping Melissa verification - no phone number or API key');
         result.melissaLookupAttempted = false;
         result.needsManualReview = true;
-        result.manualReviewReasons = ["No phone number or Melissa API key available"];
+        result.manualReviewReasons = ['No phone number or Melissa API key available'];
       }
-      
+
       const transcription = await getTranscription(file);
       setTranscript(transcription);
-      
-      const melissaContext = melissaData?.melissaData ? {
-        firstName: melissaData.melissaData.firstName,
-        lastName: melissaData.melissaData.lastName,
-        address: melissaData.melissaData.address,
-        city: melissaData.melissaData.city,
-        state: melissaData.melissaData.state,
-        zip: melissaData.melissaData.zip,
-        email: melissaData.melissaData.email,
-        dob: melissaData.melissaData.dob,
-        nameVerified: melissaData.isNameVerified,
-        addressVerified: melissaData.isAddressVerified,
-        phoneVerified: melissaData.melissaLookupAttempted,
-        phoneNumber: phoneNumber
-      } : undefined;
 
-      const openAIResult = await validateLeadWithOpenAI(
-        transcription, 
-        phoneNumber,
-        { melissaData: melissaContext }
-      );
-      
+      const melissaContext = melissaData?.melissaData
+        ? {
+            firstName: melissaData.melissaData.firstName,
+            lastName: melissaData.melissaData.lastName,
+            address: melissaData.melissaData.address,
+            city: melissaData.melissaData.city,
+            state: melissaData.melissaData.state,
+            zip: melissaData.melissaData.zip,
+            email: melissaData.melissaData.email,
+            dob: melissaData.melissaData.dob,
+            nameVerified: melissaData.isNameVerified,
+            addressVerified: melissaData.isAddressVerified,
+            phoneVerified: melissaData.melissaLookupAttempted,
+            phoneNumber: phoneNumber,
+          }
+        : undefined;
+
+      const openAIResult = await validateLeadWithOpenAI(transcription, phoneNumber, {
+        melissaData: melissaContext,
+      });
+
       if (openAIResult) {
         const mergedResult: ValidationResult = {
           ...openAIResult,
@@ -182,7 +250,7 @@ const App: React.FC = () => {
             zip: result.extractedData.zip || openAIResult.extractedData.zip || '',
             phoneNumber: phoneNumber || openAIResult.extractedData.phoneNumber || '',
             email: melissaData?.melissaData?.email || openAIResult.extractedData.email || '',
-            dob: melissaData?.melissaData?.dob || openAIResult.extractedData.dob || ''
+            dob: melissaData?.melissaData?.dob || openAIResult.extractedData.dob || '',
           },
           melissaData: openAIResult.melissaData || {
             firstName: melissaData?.melissaData?.firstName,
@@ -194,7 +262,7 @@ const App: React.FC = () => {
             phoneNumber: phoneNumber,
             email: melissaData?.melissaData?.email,
             dob: melissaData?.melissaData?.dob,
-            isVerified: melissaData?.isNameVerified || melissaData?.isAddressVerified || false
+            isVerified: melissaData?.isNameVerified || melissaData?.isAddressVerified || false,
           },
           nameFromMelissa: result.nameFromMelissa,
           addressFromMelissa: result.addressFromMelissa,
@@ -205,9 +273,9 @@ const App: React.FC = () => {
           melissaNameFound: result.melissaNameFound,
           suggestedAddress: result.suggestedAddress,
           suggestedName: result.suggestedName,
-          invalidZip: result.invalidZip
+          invalidZip: result.invalidZip,
         };
-        
+
         if (result.manualReviewReasons && result.manualReviewReasons.length > 0) {
           if (!mergedResult.manualReviewReasons) {
             mergedResult.manualReviewReasons = [];
@@ -215,37 +283,48 @@ const App: React.FC = () => {
           mergedResult.manualReviewReasons.push(...result.manualReviewReasons);
           mergedResult.needsManualReview = true;
         }
-        
-        if (openAIResult.extractedData.firstName && 
-            result.extractedData.firstName && 
-            openAIResult.extractedData.firstName.toLowerCase() !== result.extractedData.firstName.toLowerCase()) {
+
+        if (
+          openAIResult.extractedData.firstName &&
+          result.extractedData.firstName &&
+          openAIResult.extractedData.firstName.toLowerCase() !== result.extractedData.firstName.toLowerCase()
+        ) {
           mergedResult.transcriptFirstName = openAIResult.extractedData.firstName;
         }
-        
-        if (openAIResult.extractedData.lastName && 
-            result.extractedData.lastName && 
-            openAIResult.extractedData.lastName.toLowerCase() !== result.extractedData.lastName.toLowerCase()) {
+
+        if (
+          openAIResult.extractedData.lastName &&
+          result.extractedData.lastName &&
+          openAIResult.extractedData.lastName.toLowerCase() !== result.extractedData.lastName.toLowerCase()
+        ) {
           mergedResult.transcriptLastName = openAIResult.extractedData.lastName;
         }
-        
-        if (openAIResult.extractedData.address && 
-            result.extractedData.address && 
-            openAIResult.extractedData.address.toLowerCase() !== result.extractedData.address.toLowerCase()) {
+
+        if (
+          openAIResult.extractedData.address &&
+          result.extractedData.address &&
+          openAIResult.extractedData.address.toLowerCase() !== result.extractedData.address.toLowerCase()
+        ) {
           mergedResult.transcriptAddress = openAIResult.extractedData.address;
         }
-        
-        if (openAIResult.extractedData.zip && 
-            result.extractedData.zip && 
-            openAIResult.extractedData.zip !== result.extractedData.zip) {
+
+        if (
+          openAIResult.extractedData.zip &&
+          result.extractedData.zip &&
+          openAIResult.extractedData.zip !== result.extractedData.zip
+        ) {
           mergedResult.transcriptZip = openAIResult.extractedData.zip;
         }
-        
+
         const discrepancies = [];
-        if (mergedResult.transcriptFirstName) discrepancies.push("First name differs between Melissa and transcript");
-        if (mergedResult.transcriptLastName) discrepancies.push("Last name differs between Melissa and transcript");
-        if (mergedResult.transcriptAddress) discrepancies.push("Address differs between Melissa and transcript");
-        if (mergedResult.transcriptZip) discrepancies.push("ZIP code differs between Melissa and transcript");
-        
+        if (mergedResult.transcriptFirstName)
+          discrepancies.push('First name differs between Melissa and transcript');
+        if (mergedResult.transcriptLastName)
+          discrepancies.push('Last name differs between Melissa and transcript');
+        if (mergedResult.transcriptAddress)
+          discrepancies.push('Address differs between Melissa and transcript');
+        if (mergedResult.transcriptZip) discrepancies.push('ZIP code differs between Melissa and transcript');
+
         if (discrepancies.length > 0) {
           if (!mergedResult.manualReviewReasons) {
             mergedResult.manualReviewReasons = [];
@@ -253,12 +332,12 @@ const App: React.FC = () => {
           mergedResult.manualReviewReasons.push(...discrepancies);
           mergedResult.needsManualReview = true;
         }
-        
+
         setValidationResult(mergedResult);
-        console.log("Final merged validation result:", mergedResult);
+        console.log('Final merged validation result:', mergedResult);
       } else {
         setValidationResult(result);
-        console.log("Using Melissa-only validation result:", result);
+        console.log('Using Melissa-only validation result:', result);
       }
     } catch (error) {
       console.error('Error processing file:', error);
@@ -271,7 +350,7 @@ const App: React.FC = () => {
   const getTranscription = async (file: File): Promise<string> => {
     try {
       const transcript = await transcribeAudio(file);
-      console.log("Transcription successful:", transcript);
+      console.log('Transcription successful:', transcript);
       return transcript;
     } catch (error) {
       console.error('Error with Deepgram transcription:', error);
@@ -282,41 +361,46 @@ const App: React.FC = () => {
 
   return (
     <div className="app-container">
-      <header>
-        <div className="logo">
-          <h1>QUIN<span>AI</span></h1>
-        </div>
-      </header>
-      
-      <main className="content">
-        <div className="qa-container">
-          <FileUpload onFileSelect={processFile} />
-          
-          <div className="result-container">
-            <h2>AI QA Result{isLoading ? '...' : ''}</h2>
-            
-            {isLoading && (
-              <div className="loading">
-                <div className="spinner"></div>
-                <p>Processing audio file...</p>
+      {isAuthenticated ? (
+        <>
+          <header>
+            <div className="logo">
+              <h1>
+                QUIN<span>AI</span>
+              </h1>
+            </div>
+          </header>
+
+          <main className="content">
+            <div className="qa-container">
+              <FileUpload onFileSelect={processFile} />
+
+              <div className="result-container">
+                <h2>AI QA Result{isLoading ? '...' : ''}</h2>
+
+                {isLoading && (
+                  <div className="loading">
+                    <div className="spinner"></div>
+                    <p>Processing audio file...</p>
+                  </div>
+                )}
+
+                {!isLoading && validationResult && (
+                  <ValidationResultComponent result={validationResult} transcript={transcript} />
+                )}
+
+                {!isLoading && !validationResult && (
+                  <div className="no-result">
+                    <p>Upload an audio file to see QA results</p>
+                  </div>
+                )}
               </div>
-            )}
-            
-            {!isLoading && validationResult && (
-              <ValidationResultComponent 
-                result={validationResult}
-                transcript={transcript} 
-              />
-            )}
-            
-            {!isLoading && !validationResult && (
-              <div className="no-result">
-                <p>Upload an audio file to see QA results</p>
-              </div>
-            )}
-          </div>
-        </div>
-      </main>
+            </div>
+          </main>
+        </>
+      ) : (
+        <PasswordPrompt onPasswordCorrect={handlePasswordCorrect} />
+      )}
     </div>
   );
 };

@@ -969,3 +969,61 @@
   padding: 0.25rem;
   transition: background-color 0.2s ease;
 }
+
+/* src/index.css or src/components/PasswordPrompt.css */
+.password-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background-color: #f0f2f5;
+  text-align: center;
+}
+
+.password-prompt h2 {
+  margin-bottom: 1.5rem;
+  color: #333;
+}
+
+.password-prompt form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+  max-width: 300px;
+}
+
+.password-prompt input {
+  padding: 0.75rem;
+  font-size: 1rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  outline: none;
+}
+
+.password-prompt input:focus {
+  border-color: #007bff;
+  box-shadow: 0 0 5px rgba(0, 123, 255, 0.3);
+}
+
+.password-prompt button {
+  padding: 0.75rem;
+  font-size: 1rem;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.password-prompt button:hover {
+  background-color: #0056b3;
+}
+
+.password-prompt .error {
+  color: #dc3545;
+  margin-top: 1rem;
+  font-size: 0.9rem;
+}

@@ -1,7 +1,5 @@
-// src/services/melissaApi.ts
-console.log("*** MODIFIED MELISSA API VERSION FOR PHONE LOOKUP TESTING ***");
-
 import { MelissaData } from '../types';
+console.log("*** MODIFIED MELISSA API VERSION FOR PHONE LOOKUP TESTING ***");
 
 interface MelissaResponse {
   Records?: Array<{
