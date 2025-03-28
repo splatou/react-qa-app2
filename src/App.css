@@ -910,3 +910,62 @@
     margin-top: 10px;
   }
 }
+
+.name-note {
+  font-size: 0.9em;
+  color: #666;
+  margin-left: 5px;
+  font-style: italic;
+}
+
+/* Style for the Call Agent Feedback section */
+.agent-feedback-section {
+  margin-top: 2rem;
+  padding: 1rem;
+  background-color: #f9f9f9;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.agent-feedback-section h4 {
+  font-size: 1.25rem;
+  color: #333;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+}
+
+/* Reuse existing data-grid styles for consistency */
+.data-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+.data-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.data-item .label {
+  font-weight: bold;
+  color: #555;
+  margin-bottom: 0.25rem;
+}
+
+.data-item .value {
+  color: #333;
+}
+
+.not-detected {
+  color: #999;
+  font-style: italic;
+}
+
+/* Optional: Add a subtle hover effect for interactivity */
+.agent-feedback-section .data-item:hover {
+  background-color: #f0f0f0;
+  border-radius: 4px;
+  padding: 0.25rem;
+  transition: background-color 0.2s ease;
+}

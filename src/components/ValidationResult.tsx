@@ -1,6 +1,6 @@
-import React from 'react';
-import { ValidationResult as ValidationResultType, ValidationStatus } from '../types.ts';
-import { FaCheckCircle, FaTimesCircle, FaExclamationTriangle } from 'react-icons/fa';
+import React, { useEffect } from 'react';
+import { ValidationResult as ValidationResultType, ValidationStatus } from '../types';
+import { FaCheckCircle, FaTimesCircle, FaExclamationTriangle, FaInfoCircle } from 'react-icons/fa';
 
 interface ValidationResultProps {
   result: ValidationResultType;
@@ -8,8 +8,38 @@ interface ValidationResultProps {
 }
 
 const ValidationResult: React.FC<ValidationResultProps> = ({ result, transcript }) => {
+  // Debug logging to help diagnose data issues
+  useEffect(() => {
+    console.log("ValidationResult received:", {
+      transcriptData: result.transcriptData,
+      melissaData: result.melissaData,
+      extractedData: result.extractedData,
+      verification: result.verification,
+    });
+
+    // Check for data inconsistencies between transcriptData, melissaData, and extractedData
+    if (
+      result.extractedData.firstName &&
+      (!result.transcriptData?.firstName || !result.melissaData?.firstName)
+    ) {
+      console.warn("Data inconsistency: Final data exists but source data is missing for firstName");
+    }
+    if (
+      result.extractedData.lastName &&
+      (!result.transcriptData?.lastName || !result.melissaData?.lastName)
+    ) {
+      console.warn("Data inconsistency: Final data exists but source data is missing for lastName");
+    }
+    if (
+      result.extractedData.dob &&
+      (!result.transcriptData?.dob || !result.melissaData?.dob)
+    ) {
+      console.warn("Data inconsistency: Final data exists but source data is missing for DOB");
+    }
+  }, [result]);
+
   // Helper function to display values or "Not Detected"
-  const displayValue = (value: string) => {
+  const displayValue = (value: string | undefined) => {
     return value ? value : <span className="not-detected">Not Detected</span>;
   };
 
@@ -31,14 +61,55 @@ const ValidationResult: React.FC<ValidationResultProps> = ({ result, transcript 
   const getStatusBadge = (status: ValidationStatus) => {
     switch (status) {
       case 'approved':
-        return <span className="badge badge-success">Approved</span>;
+        return (
+          <span className="badge badge-success" aria-label="Approved">
+            Approved
+          </span>
+        );
       case 'rejected':
-        return <span className="badge badge-danger">Rejected</span>;
+        return (
+          <span className="badge badge-danger" aria-label="Rejected">
+            Rejected
+          </span>
+        );
       case 'needs_review':
-        return <span className="badge badge-warning">Needs Review</span>;
+        return (
+          <span className="badge badge-warning" aria-label="Needs Review">
+            Needs Review
+          </span>
+        );
       default:
         return null;
     }
+  };
+
+  // Helper function to display verification badge only when there's data to compare
+  const getVerificationBadge = (
+    isMatch: boolean | undefined,
+    transcriptValue: string | undefined,
+    melissaValue: string | undefined,
+    mismatchReason?: string
+  ) => {
+    // Only show verification badge if both values exist and can be compared
+    if (isMatch === undefined || !transcriptValue || !melissaValue) return null;
+
+    return isMatch ? (
+      <span
+        className="verification-badge match"
+        aria-label="Match"
+        title="Matches Melissa data"
+      >
+        <FaCheckCircle className="verified-icon" /> Match
+      </span>
+    ) : (
+      <span
+        className="verification-badge mismatch"
+        aria-label="Mismatch"
+        title={mismatchReason || "Does not match Melissa data"}
+      >
+        <FaTimesCircle className="unverified-icon" /> Mismatch
+      </span>
+    );
   };
 
   // Format the transcript for better readability
@@ -48,59 +119,11 @@ const ValidationResult: React.FC<ValidationResultProps> = ({ result, transcript 
     ));
   };
 
-  // Helper function to construct name comparison display
-  const renderNameComparison = () => {
-    const melissaName = (result.nameFromMelissa && (result.extractedData.firstName || result.extractedData.lastName));
-    const transcriptName = (result.transcriptFirstName || result.transcriptLastName);
-    
-    if (melissaName && transcriptName) {
-      return (
-        <div className="data-comparison">
-          <div className={`comparison-item ${result.nameVerified ? 'match' : 'mismatch'}`}>
-            <div className="source">
-              <span className="source-label">Melissa:</span>
-              <span className="source-value">
-                {`${result.extractedData.firstName || ''} ${result.extractedData.lastName || ''}`}
-              </span>
-            </div>
-            <div className="source">
-              <span className="source-label">Call:</span>
-              <span className="source-value">
-                {`${result.transcriptFirstName || ''} ${result.transcriptLastName || ''}`}
-              </span>
-            </div>
-          </div>
-        </div>
-      );
-    }
-    
-    return null;
-  };
-
-  // Helper function to construct address comparison display
-  const renderAddressComparison = () => {
-    const melissaAddress = (result.addressFromMelissa && result.extractedData.address);
-    const transcriptAddress = result.transcriptAddress;
-    
-    if (melissaAddress && transcriptAddress) {
-      return (
-        <div className="data-comparison">
-          <div className={`comparison-item ${result.addressMatchesMelissa ? 'match' : 'mismatch'}`}>
-            <div className="source">
-              <span className="source-label">Melissa:</span>
-              <span className="source-value">{result.extractedData.address}</span>
-            </div>
-            <div className="source">
-              <span className="source-label">Call:</span>
-              <span className="source-value">{result.transcriptAddress}</span>
-            </div>
-          </div>
-        </div>
-      );
-    }
-    
-    return null;
-  };
+  // Compute DOB mismatch reason
+  const dobMismatchReason =
+    result.transcriptData?.dob && result.melissaData?.dob
+      ? `Transcript DOB (${result.transcriptData.dob}) does not match Melissa DOB (${result.melissaData.dob})`
+      : undefined;
 
   return (
     <div className="validation-result">
@@ -112,15 +135,15 @@ const ValidationResult: React.FC<ValidationResultProps> = ({ result, transcript 
           </div>
         )}
       </div>
-      
+
       {/* Manual Review Alert */}
       {result.needsManualReview && (
         <div className="manual-review-alert">
           <div className="alert-icon">
-            <FaExclamationTriangle />
+            <FaExclamationTriangle aria-label="Warning" />
           </div>
           <div className="alert-content">
-            <h4>Needs Manual Review</h4>
+            <h4>Notes For Review</h4>
             {result.manualReviewReasons && result.manualReviewReasons.length > 0 && (
               <ul className="review-reasons">
                 {result.manualReviewReasons.map((reason, index) => (
@@ -131,7 +154,7 @@ const ValidationResult: React.FC<ValidationResultProps> = ({ result, transcript 
           </div>
         </div>
       )}
-      
+
       {result.reasons && result.reasons.length > 0 && (
         <div className="reasons">
           <h4>Reasons:</h4>
@@ -142,157 +165,233 @@ const ValidationResult: React.FC<ValidationResultProps> = ({ result, transcript 
           </ul>
         </div>
       )}
-      
-      <div className="extracted-data">
-        <h4>Contact Information:</h4>
+
+      {/* Call Transcript Data Section */}
+      <div className="data-section call-data">
+        <div className="section-header">
+          <h4>
+            <i className="section-icon call-icon">📞</i>
+            Call Transcript Data
+          </h4>
+        </div>
         <div className="data-grid">
           <div className="data-item">
             <span className="label">Name:</span>
-            <span className="value name-value">
-              {result.extractedData.firstName || result.extractedData.lastName ? (
+            <span className="value">
+              {(result.transcriptData?.firstName || result.transcriptData?.lastName) ? (
                 <>
-                  {`${result.extractedData.firstName || ''} ${result.extractedData.lastName || ''}`.trim()}
-                  {result.nameVerified !== undefined && (
-                    <span className="verification-icon">
-                      {result.nameVerified ? (
-                        <FaCheckCircle className="verified-icon" title="Name verified via Melissa" />
-                      ) : (
-                        <FaTimesCircle className="unverified-icon" title="Name not verified" />
-                      )}
+                  {`${result.transcriptData.firstName || ''} ${result.transcriptData.lastName || ''}`.trim()}
+                  {result.verification?.nameMatches === false && result.transcriptData?.firstName && !result.transcriptData?.lastName && (
+                    <span className="name-note">
+                      (Only first name provided in transcript)
                     </span>
-                  )}
-                  {result.nameFromMelissa && (
-                    <span className="melissa-badge" title="Name from Melissa">M</span>
                   )}
                 </>
               ) : (
                 <span className="not-detected">Not Detected</span>
               )}
             </span>
+            {getVerificationBadge(
+              result.verification?.nameMatches,
+              `${result.transcriptData?.firstName || ''} ${result.transcriptData.lastName || ''}`.trim(),
+              `${result.melissaData?.firstName || ''} ${result.melissaData.lastName || ''}`.trim(),
+              `Transcript name (${result.transcriptData?.firstName || ''} ${result.transcriptData.lastName || ''}`.trim() +
+                `) does not match Melissa name (${result.melissaData?.firstName || ''} ${result.melissaData.lastName || ''}`.trim() + `)`
+            )}
           </div>
-          
-          {/* Name Comparison if applicable */}
-          {renderNameComparison()}
-          
-          <div className="data-item">
-            <span className="label">DOB:</span>
-            <span className="value">{displayValue(result.extractedData.dob)}</span>
-          </div>
-          
-          <div className="data-item">
-            <span className="label">Phone:</span>
-            <span className="value">{displayValue(result.extractedData.phoneNumber)}</span>
-          </div>
-          
-          <div className="data-item">
-            <span className="label">Email:</span>
-            <span className="value">{displayValue(result.extractedData.email)}</span>
-          </div>
-          
+
           <div className="data-item">
             <span className="label">Address:</span>
-            <span className="value">
-              {result.extractedData.address ? (
-                <>
-                  <span className="address-value">
-                    {result.extractedData.address}
-                    {result.addressVerified !== undefined && (
-                      <span className="verification-icon">
-                        {result.addressVerified ? (
-                          <FaCheckCircle className="verified-icon" title="Address verified via Melissa" />
-                        ) : (
-                          <FaTimesCircle className="unverified-icon" title="Address not verified" />
-                        )}
-                      </span>
-                    )}
-                    {result.addressFromMelissa && (
-                      <span className="melissa-badge" title="Address from Melissa">M</span>
-                    )}
-                  </span>
-                </>
-              ) : (
-                <>
-                  {result.melissaLookupAttempted ? (
-                    <span className="lookup-attempted">
-                      Not found <span className="lookup-info">(lookup attempted)</span>
-                    </span>
-                  ) : (
-                    <span className="not-detected">Not Detected</span>
-                  )}
-                </>
-              )}
-            </span>
+            <span className="value">{displayValue(result.transcriptData?.address)}</span>
+            {getVerificationBadge(
+              result.verification?.addressMatches,
+              result.transcriptData?.address,
+              result.melissaData?.address
+            )}
           </div>
-          
-          {/* Address Comparison if applicable */}
-          {renderAddressComparison()}
-          
-          <div className="data-item combined-zipstate">
-            <div className="zip-section">
-              <span className="label">Zip:</span>
-              <span className="value">
-                {result.extractedData.zip ? (
-                  <span className={result.invalidZip ? "invalid-value" : ""}>
-                    {result.extractedData.zip}
-                    {result.invalidZip && (
-                      <span className="invalid-badge" title="Invalid ZIP code">!</span>
-                    )}
-                    {result.zipMismatch && (
-                      <span className="mismatch-badge" title="ZIP code mismatch between Melissa and transcript">≠</span>
-                    )}
-                  </span>
-                ) : (
-                  <span className="not-detected">Not Detected</span>
-                )}
-              </span>
-            </div>
-            <div className="state-section">
-              <span className="label">State:</span>
-              <span className="value">{displayValue(result.extractedData.state)}</span>
-            </div>
+
+          <div className="data-item">
+            <span className="label">ZIP:</span>
+            <span className="value">{displayValue(result.transcriptData?.zip)}</span>
+            {getVerificationBadge(
+              result.verification?.zipMatches,
+              result.transcriptData?.zip,
+              result.melissaData?.zip
+            )}
+          </div>
+
+          <div className="data-item">
+            <span className="label">State:</span>
+            <span className="value">{displayValue(result.transcriptData?.state)}</span>
+            {getVerificationBadge(
+              result.verification?.stateMatches,
+              result.transcriptData?.state,
+              result.melissaData?.state
+            )}
+          </div>
+
+          <div className="data-item">
+            <span className="label">Phone:</span>
+            <span className="value">{displayValue(result.transcriptData?.phoneNumber)}</span>
+          </div>
+
+          <div className="data-item">
+            <span className="label">Email:</span>
+            <span className="value">{displayValue(result.transcriptData?.email)}</span>
+          </div>
+
+          <div className="data-item">
+            <span className="label">DOB:</span>
+            <span className="value">{displayValue(result.transcriptData?.dob)}</span>
+            {getVerificationBadge(
+              result.transcriptData?.dob && result.melissaData?.dob
+                ? result.transcriptData.dob === result.melissaData.dob
+                : undefined,
+              result.transcriptData?.dob,
+              result.melissaData?.dob,
+              dobMismatchReason
+            )}
           </div>
         </div>
       </div>
-      
+
+      {/* Melissa Data Section */}
+      <div className="data-section melissa-data">
+        <div className="section-header">
+          <h4>
+            <i className="section-icon melissa-icon">🔍</i>
+            Melissa Data
+            {!result.melissaLookupAttempted && (
+              <span className="lookup-status not-attempted">
+                <FaInfoCircle /> Lookup Not Attempted
+              </span>
+            )}
+          </h4>
+        </div>
+        {result.melissaLookupAttempted ? (
+          <div className="data-grid">
+            <div className="data-item">
+              <span className="label">Name:</span>
+              <span className="value">
+                {(result.melissaData?.firstName || result.melissaData?.lastName) ? (
+                  `${result.melissaData.firstName || ''} ${result.melissaData.lastName || ''}`.trim()
+                ) : (
+                  <span className="not-detected">Not Found</span>
+                )}
+              </span>
+              {result.melissaData?.isVerified && (
+                <span
+                  className="verified-tag"
+                  title="Melissa verified this data"
+                  aria-label="Verified by Melissa"
+                >
+                  <FaCheckCircle className="verified-icon" /> Verified
+                </span>
+              )}
+            </div>
+
+            <div className="data-item">
+              <span className="label">Address:</span>
+              <span className="value">{displayValue(result.melissaData?.address)}</span>
+              {result.melissaData?.isVerified && (
+                <span
+                  className="verified-tag"
+                  title="Melissa verified this data"
+                  aria-label="Verified by Melissa"
+                >
+                  <FaCheckCircle className="verified-icon" /> Verified
+                </span>
+              )}
+            </div>
+
+            <div className="data-item">
+              <span className="label">ZIP:</span>
+              <span className="value">{displayValue(result.melissaData?.zip)}</span>
+            </div>
+
+            <div className="data-item">
+              <span className="label">State:</span>
+              <span className="value">{displayValue(result.melissaData?.state)}</span>
+            </div>
+
+            <div className="data-item">
+              <span className="label">City:</span>
+              <span className="value">{displayValue(result.melissaData?.city)}</span>
+            </div>
+
+            <div className="data-item">
+              <span className="label">Phone:</span>
+              <span className="value">{displayValue(result.melissaData?.phoneNumber)}</span>
+            </div>
+
+            <div className="data-item">
+              <span className="label">DOB:</span>
+              <span className="value">{displayValue(result.melissaData?.dob)}</span>
+            </div>
+
+            <div className="data-item">
+              <span className="label">Email:</span>
+              <span className="value">{displayValue(result.melissaData?.email)}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="no-data-message">
+            No Melissa data lookup was performed for this lead.
+          </div>
+        )}
+      </div>
+
       {/* Auto Insurance Section */}
       <div className="insurance-section">
-        <h4>Auto Insurance:</h4>
+        <h4>Auto Insurance (Merged Data):</h4>
         <div className="data-grid">
           <div className="data-item">
             <span className="label">Main Vehicle:</span>
             <span className="value">
-              {result.extractedData.autoInsurance?.mainVehicle?.year || 
-               result.extractedData.autoInsurance?.mainVehicle?.make || 
-               result.extractedData.autoInsurance?.mainVehicle?.model ? (
+              {result.extractedData.autoInsurance?.mainVehicle?.year ||
+              result.extractedData.autoInsurance?.mainVehicle?.make ||
+              result.extractedData.autoInsurance?.mainVehicle?.model ? (
                 <>
-                  {result.extractedData.autoInsurance.mainVehicle.year && 
-                    <span className="vehicle-year">{result.extractedData.autoInsurance.mainVehicle.year}</span>}
-                  {result.extractedData.autoInsurance.mainVehicle.make && 
-                    <span className="vehicle-make">{result.extractedData.autoInsurance.mainVehicle.make}</span>}
-                  {result.extractedData.autoInsurance.mainVehicle.model && 
-                    <span className="vehicle-model">{result.extractedData.autoInsurance.mainVehicle.model}</span>}
-                  {result.extractedData.autoInsurance.mainVehicle.corrected && (
-                    <span className="correction-badge" title={`Originally heard as: ${result.extractedData.autoInsurance.mainVehicle.originalText}`}>
-                      Corrected
+                  {result.extractedData.autoInsurance.mainVehicle.year && (
+                    <span className="vehicle-year">
+                      {result.extractedData.autoInsurance.mainVehicle.year}
                     </span>
                   )}
-                  {result.extractedData.autoInsurance.mainVehicle.potentialHallucination && (
-                    <span className="hallucination-warning" title="This vehicle information may be hallucinated - not found in transcript">
-                      <FaExclamationTriangle className="hallucination-icon" /> Potential hallucination
+                  {result.extractedData.autoInsurance.mainVehicle.make && (
+                    <span className="vehicle-make">
+                      {result.extractedData.autoInsurance.mainVehicle.make}
+                    </span>
+                  )}
+                  {result.extractedData.autoInsurance.mainVehicle.model && (
+                    <span className="vehicle-model">
+                      {result.extractedData.autoInsurance.mainVehicle.model}
                     </span>
                   )}
                   {result.extractedData.autoInsurance.mainVehicle.suggestedCorrection && (
                     <div className="vehicle-suggestion">
-                      <span className="suggestion-icon" title="AI suggests this correction">💡</span>
+                      <span className="suggestion-icon" title="AI suggests this correction">
+                        💡
+                      </span>
                       <span className="suggestion-text">
-                        Suggested correction: 
-                        {result.extractedData.autoInsurance.mainVehicle.suggestedCorrection.year && 
-                          <span className="vehicle-year">{result.extractedData.autoInsurance.mainVehicle.suggestedCorrection.year}</span>}
-                        {result.extractedData.autoInsurance.mainVehicle.suggestedCorrection.make && 
-                          <span className="vehicle-make">{result.extractedData.autoInsurance.mainVehicle.suggestedCorrection.make}</span>}
-                        {result.extractedData.autoInsurance.mainVehicle.suggestedCorrection.model && 
-                          <span className="vehicle-model">{result.extractedData.autoInsurance.mainVehicle.suggestedCorrection.model}</span>}
-                        <span className="suggestion-reason">({result.extractedData.autoInsurance.mainVehicle.suggestedCorrection.reason})</span>
+                        Suggested correction:
+                        {result.extractedData.autoInsurance.mainVehicle.suggestedCorrection.year && (
+                          <span className="vehicle-year">
+                            {result.extractedData.autoInsurance.mainVehicle.suggestedCorrection.year}
+                          </span>
+                        )}
+                        {result.extractedData.autoInsurance.mainVehicle.suggestedCorrection.make && (
+                          <span className="vehicle-make">
+                            {result.extractedData.autoInsurance.mainVehicle.suggestedCorrection.make}
+                          </span>
+                        )}
+                        {result.extractedData.autoInsurance.mainVehicle.suggestedCorrection.model && (
+                          <span className="vehicle-model">
+                            {result.extractedData.autoInsurance.mainVehicle.suggestedCorrection.model}
+                          </span>
+                        )}
+                        <span className="suggestion-reason">
+                          ({result.extractedData.autoInsurance.mainVehicle.suggestedCorrection.reason})
+                        </span>
                       </span>
                     </div>
                   )}
@@ -302,42 +401,54 @@ const ValidationResult: React.FC<ValidationResultProps> = ({ result, transcript 
               )}
             </span>
           </div>
-          
+
           <div className="data-item">
             <span className="label">Secondary Vehicle:</span>
             <span className="value">
-              {result.extractedData.autoInsurance?.secondaryVehicle?.year || 
-               result.extractedData.autoInsurance?.secondaryVehicle?.make || 
-               result.extractedData.autoInsurance?.secondaryVehicle?.model ? (
+              {result.extractedData.autoInsurance?.secondaryVehicle?.year ||
+              result.extractedData.autoInsurance?.secondaryVehicle?.make ||
+              result.extractedData.autoInsurance?.secondaryVehicle?.model ? (
                 <>
-                  {result.extractedData.autoInsurance.secondaryVehicle.year && 
-                    <span className="vehicle-year">{result.extractedData.autoInsurance.secondaryVehicle.year}</span>}
-                  {result.extractedData.autoInsurance.secondaryVehicle.make && 
-                    <span className="vehicle-make">{result.extractedData.autoInsurance.secondaryVehicle.make}</span>}
-                  {result.extractedData.autoInsurance.secondaryVehicle.model && 
-                    <span className="vehicle-model">{result.extractedData.autoInsurance.secondaryVehicle.model}</span>}
-                  {result.extractedData.autoInsurance.secondaryVehicle.corrected && (
-                    <span className="correction-badge" title={`Originally heard as: ${result.extractedData.autoInsurance.secondaryVehicle.originalText}`}>
-                      Corrected
+                  {result.extractedData.autoInsurance.secondaryVehicle.year && (
+                    <span className="vehicle-year">
+                      {result.extractedData.autoInsurance.secondaryVehicle.year}
                     </span>
                   )}
-                  {result.extractedData.autoInsurance.secondaryVehicle.potentialHallucination && (
-                    <span className="hallucination-warning" title="This vehicle information may be hallucinated - not found in transcript">
-                      <FaExclamationTriangle className="hallucination-icon" /> Potential hallucination
+                  {result.extractedData.autoInsurance.secondaryVehicle.make && (
+                    <span className="vehicle-make">
+                      {result.extractedData.autoInsurance.secondaryVehicle.make}
+                    </span>
+                  )}
+                  {result.extractedData.autoInsurance.secondaryVehicle.model && (
+                    <span className="vehicle-model">
+                      {result.extractedData.autoInsurance.secondaryVehicle.model}
                     </span>
                   )}
                   {result.extractedData.autoInsurance.secondaryVehicle.suggestedCorrection && (
                     <div className="vehicle-suggestion">
-                      <span className="suggestion-icon" title="AI suggests this correction">💡</span>
+                      <span className="suggestion-icon" title="AI suggests this correction">
+                        💡
+                      </span>
                       <span className="suggestion-text">
-                        Suggested correction: 
-                        {result.extractedData.autoInsurance.secondaryVehicle.suggestedCorrection.year && 
-                          <span className="vehicle-year">{result.extractedData.autoInsurance.secondaryVehicle.suggestedCorrection.year}</span>}
-                        {result.extractedData.autoInsurance.secondaryVehicle.suggestedCorrection.make && 
-                          <span className="vehicle-make">{result.extractedData.autoInsurance.secondaryVehicle.suggestedCorrection.make}</span>}
-                        {result.extractedData.autoInsurance.secondaryVehicle.suggestedCorrection.model && 
-                          <span className="vehicle-model">{result.extractedData.autoInsurance.secondaryVehicle.suggestedCorrection.model}</span>}
-                        <span className="suggestion-reason">({result.extractedData.autoInsurance.secondaryVehicle.suggestedCorrection.reason})</span>
+                        Suggested correction:
+                        {result.extractedData.autoInsurance.secondaryVehicle.suggestedCorrection.year && (
+                          <span className="vehicle-year">
+                            {result.extractedData.autoInsurance.secondaryVehicle.suggestedCorrection.year}
+                          </span>
+                        )}
+                        {result.extractedData.autoInsurance.secondaryVehicle.suggestedCorrection.make && (
+                          <span className="vehicle-make">
+                            {result.extractedData.autoInsurance.secondaryVehicle.suggestedCorrection.make}
+                          </span>
+                        )}
+                        {result.extractedData.autoInsurance.secondaryVehicle.suggestedCorrection.model && (
+                          <span className="vehicle-model">
+                            {result.extractedData.autoInsurance.secondaryVehicle.suggestedCorrection.model}
+                          </span>
+                        )}
+                        <span className="suggestion-reason">
+                          ({result.extractedData.autoInsurance.secondaryVehicle.suggestedCorrection.reason})
+                        </span>
                       </span>
                     </div>
                   )}
@@ -347,7 +458,7 @@ const ValidationResult: React.FC<ValidationResultProps> = ({ result, transcript 
               )}
             </span>
           </div>
-          
+
           <div className="data-item">
             <span className="label">Current Provider:</span>
             <span className="value">
@@ -356,10 +467,10 @@ const ValidationResult: React.FC<ValidationResultProps> = ({ result, transcript 
           </div>
         </div>
       </div>
-      
+
       {/* Home Insurance Section */}
       <div className="insurance-section">
-        <h4>Home Insurance:</h4>
+        <h4>Home Insurance (Merged Data):</h4>
         <div className="data-grid">
           <div className="data-item">
             <span className="label">Interested:</span>
@@ -370,13 +481,17 @@ const ValidationResult: React.FC<ValidationResultProps> = ({ result, transcript 
           <div className="data-item">
             <span className="label">Ownership:</span>
             <span className="value">
-              {result.extractedData.homeInsurance?.ownership || <span className="not-detected">Not Detected</span>}
+              {result.extractedData.homeInsurance?.ownership || (
+                <span className="not-detected">Not Detected</span>
+              )}
             </span>
           </div>
           <div className="data-item">
             <span className="label">Home Type:</span>
             <span className="value">
-              {result.extractedData.homeInsurance?.homeType || <span className="not-detected">Not Detected</span>}
+              {result.extractedData.homeInsurance?.homeType || (
+                <span className="not-detected">Not Detected</span>
+              )}
             </span>
           </div>
           <div className="data-item">
@@ -387,10 +502,10 @@ const ValidationResult: React.FC<ValidationResultProps> = ({ result, transcript 
           </div>
         </div>
       </div>
-      
+
       {/* Health Insurance Section */}
       <div className="insurance-section">
-        <h4>Health Insurance:</h4>
+        <h4>Health Insurance (Merged Data):</h4>
         <div className="data-grid">
           <div className="data-item">
             <span className="label">Interested:</span>
@@ -401,9 +516,11 @@ const ValidationResult: React.FC<ValidationResultProps> = ({ result, transcript 
           <div className="data-item">
             <span className="label">Household Size:</span>
             <span className="value">
-              {result.extractedData.healthInsurance?.householdSize 
-                ? result.extractedData.healthInsurance.householdSize 
-                : <span className="not-detected">Not Detected</span>}
+              {result.extractedData.healthInsurance?.householdSize ? (
+                result.extractedData.healthInsurance.householdSize
+              ) : (
+                <span className="not-detected">Not Detected</span>
+              )}
             </span>
           </div>
           <div className="data-item">
@@ -414,12 +531,65 @@ const ValidationResult: React.FC<ValidationResultProps> = ({ result, transcript 
           </div>
         </div>
       </div>
-      
+
+      {/* Call Agent Feedback Section */}
+      <div className="agent-feedback-section">
+        <h4>Call Agent Feedback:</h4>
+        <div className="data-grid">
+          <div className="data-item">
+            <span className="label">Asked for Best Callback Number:</span>
+            <span className="value">
+              {displayYesNo(result.extractedData.agentFeedback?.askedForCallbackNumber || null)}
+            </span>
+          </div>
+          <div className="data-item">
+            <span className="label">Asked for First and Last Name:</span>
+            <span className="value">
+              {displayYesNo(result.extractedData.agentFeedback?.askedForFirstAndLastName || null)}
+            </span>
+          </div>
+          <div className="data-item">
+            <span className="label">Asked for Year, Make, Model of Vehicle:</span>
+            <span className="value">
+              {displayYesNo(result.extractedData.agentFeedback?.askedForVehicleYearMakeModel || null)}
+            </span>
+          </div>
+          <div className="data-item">
+            <span className="label">Asked for Secondary Vehicle:</span>
+            <span className="value">
+              {displayYesNo(result.extractedData.agentFeedback?.askedForSecondaryVehicle || null)}
+            </span>
+          </div>
+          <div className="data-item">
+            <span className="label">Asked for Current Insurance Provider:</span>
+            <span className="value">
+              {displayYesNo(result.extractedData.agentFeedback?.askedForCurrentInsuranceProvider || null)}
+            </span>
+          </div>
+          <div className="data-item">
+            <span className="label">Asked if Customer Owns/Rents Home:</span>
+            <span className="value">
+              {displayYesNo(result.extractedData.agentFeedback?.askedForOwnRentHome || null)}
+            </span>
+          </div>
+          <div className="data-item">
+            <span className="label">Asked for Date of Birth:</span>
+            <span className="value">
+              {displayYesNo(result.extractedData.agentFeedback?.askedForDob || null)}
+            </span>
+          </div>
+          <div className="data-item">
+            <span className="label">Asked for Address:</span>
+            <span className="value">
+              {displayYesNo(result.extractedData.agentFeedback?.askedForAddress || null)}
+            </span>
+          </div>
+        </div>
+      </div>
+
       <div className="transcript">
         <h4>Call Transcript:</h4>
-        <div className="transcript-text">
-          {formatTranscript(transcript)}
-        </div>
+        <div className="transcript-text">{formatTranscript(transcript)}</div>
       </div>
     </div>
   );

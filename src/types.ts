@@ -1,127 +1,128 @@
 // src/types.ts
 
-// Types for vehicle information
-export interface Vehicle {
-  year?: string;
-  make?: string;
-  model?: string;
-  corrected?: boolean;
-  originalText?: string;
-  potentialHallucination?: boolean;
+export type ValidationStatus = 'approved' | 'rejected' | 'needs_review';
+
+export interface VehicleInfo {
+  year: string;
+  make: string;
+  model: string;
+  confidence?: number;
   suggestedCorrection?: {
     year?: string;
     make?: string;
     model?: string;
     reason?: string;
   };
+  potentialHallucination?: boolean;
+  originalText?: string;
+  corrected?: boolean;
 }
 
-// Types for insurance information
 export interface AutoInsurance {
-  mainVehicle?: Vehicle;
-  secondaryVehicle?: Vehicle;
+  mainVehicle?: VehicleInfo;
+  secondaryVehicle?: VehicleInfo;
   currentProvider?: string;
 }
 
 export interface HomeInsurance {
-  interested?: boolean;
+  interested?: boolean | null;
   ownership?: string;
   homeType?: string;
   currentProvider?: string;
 }
 
 export interface HealthInsurance {
-  interested?: boolean;
-  householdSize?: string;
+  interested?: boolean | null;
+  householdSize?: number | null;
   currentProvider?: string;
 }
 
-// Type for Melissa Data (source of truth)
-export interface MelissaData {
-  lookupAttempted: boolean;
-  dataFound: boolean;
-  firstName?: string;
-  lastName?: string;
-  phoneNumber?: string;
-  email?: string;
-  address?: string;
-  city?: string;
-  state?: string;
-  zip?: string;
-  resultCodes?: string;
+export interface AgentFeedback {
+  askedForCallbackNumber: boolean;
+  askedForFirstAndLastName: boolean;
+  askedForVehicleYearMakeModel: boolean;
+  askedForSecondaryVehicle: boolean;
+  askedForCurrentInsuranceProvider: boolean;
+  askedForOwnRentHome: boolean;
+  askedForDob: boolean;
+  askedForAddress: boolean;
 }
 
-// Type for data extracted from the transcript by OpenAI
-export interface TranscriptData {
+export interface ExtractedData {
   firstName?: string;
   lastName?: string;
-  phoneNumber?: string;
-  email?: string;
   dob?: string;
+  phoneNumber?: string;
   address?: string;
-  city?: string;
-  state?: string;
   zip?: string;
+  state?: string;
+  email?: string;
+  vehicleInfo?: string; // Legacy field
   autoInsurance?: AutoInsurance;
   homeInsurance?: HomeInsurance;
   healthInsurance?: HealthInsurance;
-  manualReviewReasons?: string[];
-  confidenceScore?: number;
+  agentFeedback?: AgentFeedback; // Added agentFeedback field
 }
 
-// Type for final validation result
-export type ValidationStatus = 'approved' | 'rejected' | 'needs_review';
+// New interfaces for separate data sources
+export interface TranscriptData {
+  firstName?: string;
+  lastName?: string;
+  dob?: string;
+  phoneNumber?: string;
+  address?: string;
+  zip?: string;
+  state?: string;
+  email?: string;
+}
+
+export interface MelissaData {
+  firstName?: string;
+  lastName?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  phoneNumber?: string;
+  email?: string;
+  dob?: string;  // Added DOB field
+  isVerified: boolean;
+}
+
+export interface VerificationStatus {
+  nameMatches?: boolean;
+  addressMatches?: boolean;
+  zipMatches?: boolean;
+  stateMatches?: boolean;
+}
 
 export interface ValidationResult {
   status: ValidationStatus;
-  confidenceScore?: number;
-  needsManualReview: boolean;
-  manualReviewReasons?: string[];
+  confidenceScore: number;
   reasons?: string[];
+  extractedData: ExtractedData;
   
-  // Extracted data (merged from Melissa and transcript)
-  extractedData: {
-    firstName: string;
-    lastName: string;
-    phoneNumber: string;
-    email: string;
-    dob: string;
-    address: string;
-    city?: string;
-    state: string;
-    zip: string;
-    autoInsurance?: AutoInsurance;
-    homeInsurance?: HomeInsurance;
-    healthInsurance?: HealthInsurance;
-  };
+  // New fields for separate data display
+  transcriptData?: TranscriptData;
+  melissaData?: MelissaData;
+  verification?: VerificationStatus;
+  melissaLookupAttempted?: boolean;
   
-  // Melissa verification flags
-  melissaLookupAttempted: boolean;
-  melissaAddressFound: boolean;
-  melissaNameFound?: boolean;
-  nameVerified: boolean;
-  addressVerified: boolean;
-  addressMatchesMelissa?: boolean;
+  // Fields for backward compatibility
+  needsManualReview?: boolean;
+  manualReviewReasons?: string[];
   
-  // Original transcript values for comparison
-  transcriptFirstName?: string;
-  transcriptLastName?: string;
-  transcriptAddress?: string;
-  transcriptZip?: string;
-  transcriptState?: string;
-  
-  // Origin flags
+  // Legacy fields (for backward compatibility)
+  nameVerified?: boolean;
+  addressVerified?: boolean;
   nameFromMelissa?: boolean;
   addressFromMelissa?: boolean;
-  
-  // Validity flags
+  addressMatchesMelissa?: boolean;
   invalidZip?: boolean;
   zipMismatch?: boolean;
   
-  // Suggested corrections
-  suggestedAddress?: string;
-  suggestedName?: {
-    firstName?: string;
-    lastName?: string;
-  };
+  // Fields used for displaying comparison data
+  transcriptFirstName?: string;
+  transcriptLastName?: string;
+  transcriptAddress?: string;
 }
