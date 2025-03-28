@@ -37,6 +37,7 @@ const App: React.FC = () => {
   };
 
   const processFile = async (file: File) => {
+    console.log('processFile called with file:', file.name); // Debug: Confirm function is called
     setIsLoading(true);
 
     try {
@@ -339,9 +340,8 @@ const App: React.FC = () => {
       </header>
 
       <main className="content">
-        <div className="qa-container">
+        <div className="qa-container" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
           <FileUpload onFileSelect={processFile} />
-
           <div className="result-container">
             <h2>AI QA Result{isLoading ? '...' : ''}</h2>
 
