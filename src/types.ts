@@ -33,7 +33,7 @@ export interface HomeInsurance {
 
 export interface HealthInsurance {
   interested?: boolean | null;
-  householdSize?: number | null;
+  householdSize?: number | string | null; // Updated to accept string to fix errors
   currentProvider?: string;
 }
 
@@ -56,12 +56,13 @@ export interface ExtractedData {
   address?: string;
   zip?: string;
   state?: string;
+  city?: string; // Added city property
   email?: string;
   vehicleInfo?: string; // Legacy field
   autoInsurance?: AutoInsurance;
   homeInsurance?: HomeInsurance;
   healthInsurance?: HealthInsurance;
-  agentFeedback?: AgentFeedback; // Added agentFeedback field
+  agentFeedback?: AgentFeedback;
 }
 
 // New interfaces for separate data sources
@@ -73,7 +74,25 @@ export interface TranscriptData {
   address?: string;
   zip?: string;
   state?: string;
+  city?: string; // Added city property
   email?: string;
+  // Add insurance properties to match usage in api.ts
+  autoInsurance?: {
+    mainVehicle?: any;
+    secondaryVehicle?: any;
+    currentProvider?: any;
+  };
+  homeInsurance?: {
+    interested?: boolean | null;
+    ownership?: string;
+    homeType?: string;
+    currentProvider?: string;
+  };
+  healthInsurance?: {
+    interested?: boolean | null;
+    householdSize?: string | number | null;
+    currentProvider?: string;
+  };
 }
 
 export interface MelissaData {
@@ -85,7 +104,7 @@ export interface MelissaData {
   zip?: string;
   phoneNumber?: string;
   email?: string;
-  dob?: string;  // Added DOB field
+  dob?: string;
   isVerified: boolean;
 }
 
@@ -94,6 +113,23 @@ export interface VerificationStatus {
   addressMatches?: boolean;
   zipMatches?: boolean;
   stateMatches?: boolean;
+}
+
+// New interface for Melissa verification results
+export interface MelissaVerificationResult {
+  isNameVerified: boolean;
+  isAddressVerified: boolean;
+  melissaAddressFound: boolean;
+  melissaNameFound: boolean;
+  suggestedAddress?: string;
+  suggestedName?: string;
+  city?: string;
+  state?: string;
+  firstName?: string;
+  lastName?: string;
+  address?: string;
+  zip?: string;
+  // Any other fields accessed from melissaData
 }
 
 export interface ValidationResult {
@@ -118,11 +154,18 @@ export interface ValidationResult {
   nameFromMelissa?: boolean;
   addressFromMelissa?: boolean;
   addressMatchesMelissa?: boolean;
-  invalidZip?: boolean;
+  invalidZip?: boolean; // Kept this instance, removed the duplicate
   zipMismatch?: boolean;
   
   // Fields used for displaying comparison data
   transcriptFirstName?: string;
   transcriptLastName?: string;
   transcriptAddress?: string;
+  transcriptZip?: string; // Added missing property
+  
+  // Additional fields being accessed in the code
+  melissaAddressFound?: boolean;
+  melissaNameFound?: boolean;
+  suggestedAddress?: string;
+  suggestedName?: string;
 }

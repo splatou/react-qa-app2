@@ -1,4 +1,4 @@
-import { LeadData, ValidationResult, ValidationStatus, TranscriptData, MelissaData, VerificationStatus } from '../types';
+import { ValidationResult, ValidationStatus, TranscriptData, MelissaData, VerificationStatus } from '../types';
 import config from '../config';
 
 // Function to transcribe audio using Deepgram API with diarization enabled
@@ -131,6 +131,7 @@ When analyzing the transcript:
   - If the name is spelled out letter-by-letter (e.g., "k i n b e r l y" or "K-I-M-B-E-R-L-Y"), convert it to its proper form (e.g., "Kimberly").
   - Use contextual cues like "my name is," "spell your name," "first name," or "last name", "can you verify the spelling of your first name please" and "can you please spell your last name for me" (this question is usually asked, and the customer then spells their name) to identify the correct fields.
   - Combine letters into a single word, capitalizing the first letter (e.g., "k i p p" becomes "Kipp").
+  - Last Name ("last_name") is usually provided after the contenxtual clue "can you please spell your last name for me"
   - If only the first name is provided in the transcript (e.g., "My name is Denny"), set "first_name" to "Denny" and "last_name" to "" (empty string).
   - If only the last name is provided, set "first_name" to "" and "last_name" to the provided last name.
   - If no name is provided, set both "first_name" and "last_name" to "".
@@ -140,7 +141,7 @@ When analyzing the transcript:
 - DO NOT hallucinate or guess information not mentioned in the transcript
 
 CRITICAL REQUIREMENTS FOR LEAD APPROVAL:
-1. The customer must explicitly express interest in insurance quotes
+1. The customer must explicitly express interest in insurance quotes, or willingly give out their information about vehicles, home types, or health insurance questions.
 2. The lead must have a name (either from Melissa or transcript)
 3. The lead must have an address or ZIP code (either from Melissa or transcript)
 4. The transcript must contain either a vehicle description OR clear confirmation they have auto insurance
@@ -149,13 +150,13 @@ If ANY of these are missing, the lead MUST be classified as "needs_review" with 
 
 Extract the following data points from the TRANSCRIPT:
 - Personal Information:
-  - First Name (convert spelled-out names to proper format, e.g., "j o h n" → "John")
-  - Last Name (convert spelled-out names to proper format, e.g., "d o e" → "Doe")
+  - First Name (convert spelled-out names to proper format, e.g., "j o h n" → "John") - Use contextual cues like "my name is," "spell your name," "first name," or "last name", "can you verify the spelling of your first name please" (this question is usually asked, and the customer then spells their name) to identify the correct fields.
+  - Last Name (convert spelled-out names to proper format, e.g., "d o e" → "Doe") - Use contextual cues like "my name is," "spell your name," "first name," or "last name", "can you please spell your last name for me" (this question is usually asked, and the customer then spells their name) to identify the correct fields.
   - Phone Number (if mentioned)
-  - Address (complete street address if mentioned)
+  - Address (complete street address if mentioned) - use contextual clues like "what is your street address" to find this.
   - ZIP Code (extract exactly as mentioned in the transcript, do not use Melissa data for this field) - use contextual clues like "what is your zip code" to find this.
-  - State
-  - Date of Birth (if mentioned) - use contextual clues like "may i please get your date of birth" to find this.
+  - State - add this based on the transcript ZIP CODE, with your knowledge of US zips and states.
+  - Date of Birth (if mentioned) - use contextual clues like "may i please get your date of birth", "what is your birth year", "what is your birth month", "what is your birth day" to find this and format as MM/DD/YYYY
   - Email (if mentioned)
 
 - Auto Insurance:

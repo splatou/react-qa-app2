@@ -1,58 +1,52 @@
 import React, { useState } from 'react';
-import axios from 'axios';
 import './App.css';
-import { ValidationResult } from './types';
+// Check if these paths match your project structure
+import { transcribeAudio, validateLeadWithOpenAI } from './services/api';
+import { ValidationResult, MelissaVerificationResult } from './types';
 import FileUpload from './components/FileUpload';
 import ValidationResultComponent from './components/ValidationResult';
-import * as zipcodes from 'zipcodes';
+import { verifyContact } from './services/melissaApi';
 import { isValidZipCode } from './util';
 
 const App: React.FC = () => {
+  console.log("Deepgram API Key:", process.env.REACT_APP_DEEPGRAM_API_KEY ? "Set (length: " + process.env.REACT_APP_DEEPGRAM_API_KEY.length + ")" : "Not set");
+  console.log("OpenAI API Key:", process.env.REACT_APP_OPENAI_API_KEY ? "Set (length: " + process.env.REACT_APP_OPENAI_API_KEY.length + ")" : "Not set");
+  console.log("Melissa API Key:", process.env.REACT_APP_MELISSA_API_KEY ? "Set (length: " + process.env.REACT_APP_MELISSA_API_KEY.length + ")" : "Not set");
+
+  // Using the file state to keep reference to the current file
+  const [, setFile] = useState<File | null>(null); // Removed unused variable
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [transcript, setTranscript] = useState<string>('');
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
 
+  // Extract phone number from filename (assuming filename contains a 10-digit number)
   const extractPhoneFromFilename = (filename: string): string => {
     const match = filename.match(/\d{10}/);
     return match ? match[0] : '';
   };
 
-  const getTranscription = async (file: File): Promise<string> => {
-    try {
-      const formData = new FormData();
-      formData.append('audio', file);
-
-      const response = await axios.post('https://api.deepgram.com/v1/listen', formData, {
-        headers: {
-          Authorization: `Token ${process.env.REACT_APP_DEEPGRAM_API_KEY}`,
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-      return response.data.results.channels[0].alternatives[0].transcript;
-    } catch (error) {
-      console.error('Error with transcription:', error);
-      alert('Error transcribing audio: ' + (error as Error).message);
-      throw error;
-    }
-  };
-
+  // Process the dropped or selected file
   const processFile = async (file: File) => {
     setIsLoading(true);
-
+    setFile(file);
+    
     try {
+      // Step 1: Extract phone number from filename
       const phoneNumber = extractPhoneFromFilename(file.name);
       if (!phoneNumber) {
         console.warn("Couldn't extract phone number from filename");
       } else {
         console.log(`Extracted phone number: ${phoneNumber}`);
       }
-
-      let melissaData: any | null = null;
+      
+      // Step 2: First query Melissa API with phone number to get authoritative data
+      let melissaData: any = null; // Using proper type
       let result: ValidationResult = {
         status: 'needs_review',
         confidenceScore: 0.5,
         needsManualReview: false,
         extractedData: {
+          // Initialize with empty data
           firstName: '',
           lastName: '',
           address: '',
@@ -61,101 +55,118 @@ const App: React.FC = () => {
           phoneNumber: phoneNumber,
           email: '',
           dob: '',
+          // Default empty insurance objects
           autoInsurance: {
             mainVehicle: { year: '', make: '', model: '' },
-            currentProvider: '',
+            currentProvider: ''
           },
           homeInsurance: {
             interested: null,
             ownership: '',
             homeType: '',
-            currentProvider: '',
+            currentProvider: ''
           },
           healthInsurance: {
             interested: null,
             householdSize: null,
-            currentProvider: '',
-          },
-          agentFeedback: {
-            askedForCallbackNumber: false,
-            askedForFirstAndLastName: false,
-            askedForVehicleYearMakeModel: false,
-            askedForSecondaryVehicle: false,
-            askedForCurrentInsuranceProvider: false,
-            askedForOwnRentHome: false,
-            askedForDob: false,
-            askedForAddress: false,
-          },
+            currentProvider: ''
+          }
         },
-        melissaLookupAttempted: false,
+        melissaLookupAttempted: false
       };
-
-      if (phoneNumber) {
+      
+      // Always attempt Melissa lookup if phone number is available
+      if (phoneNumber && process.env.REACT_APP_MELISSA_API_KEY) {
         try {
-          console.log('Querying Melissa with phone number...');
-          const response = await axios.get(
-            `https://personator.melissadata.net/v3/WEB/ContactVerify/doContactVerify`,
-            {
-              params: {
-                t: 'test',
-                id: process.env.REACT_APP_MELISSA_API_KEY,
-                act: 'Check',
-                phone: phoneNumber,
-                format: 'JSON',
-              },
-            }
-          );
-          melissaData = response.data;
-
+          console.log("Querying Melissa with phone number...");
+          melissaData = await verifyContact({ phoneNumber });
+          
           result.melissaLookupAttempted = true;
-
+          
+          // ALWAYS use Melissa data as authoritative for contact info when available
           if (melissaData.firstName) {
             result.extractedData.firstName = melissaData.firstName;
             result.nameFromMelissa = true;
           }
-
+          
           if (melissaData.lastName) {
             result.extractedData.lastName = melissaData.lastName;
             result.nameFromMelissa = true;
           }
-
+          
           if (melissaData.address) {
             result.extractedData.address = melissaData.address;
             result.addressFromMelissa = true;
           }
-
+          
           if (melissaData.city) {
             result.extractedData.city = melissaData.city;
           }
-
+          
           if (melissaData.state) {
             result.extractedData.state = melissaData.state;
           }
-
+          
           if (melissaData.zip) {
             result.extractedData.zip = melissaData.zip;
-
+            
+            // Validate ZIP code
             if (!isValidZipCode(melissaData.zip)) {
               result.invalidZip = true;
               result.needsManualReview = true;
-              result.manualReviewReasons = ['Invalid ZIP code from Melissa'];
+              result.manualReviewReasons = ["Invalid ZIP code from Melissa"];
             }
           }
-
+          
+          // Set verification flags directly from Melissa
           result.nameVerified = melissaData.isNameVerified;
           result.addressVerified = melissaData.isAddressVerified;
           result.melissaAddressFound = melissaData.melissaAddressFound;
           result.melissaNameFound = melissaData.melissaNameFound;
-
+          
+          // Store suggested corrections from Melissa if available
           if (melissaData.suggestedAddress) {
             result.suggestedAddress = melissaData.suggestedAddress;
           }
-
+          
           if (melissaData.suggestedName) {
             result.suggestedName = melissaData.suggestedName;
           }
-
-          console.log('Data obtained from Melissa:', {
+          
+          console.log("Data obtained from Melissa:", {
+            firstName: result.extractedData.firstName,
+            lastName: result.extractedData.lastName,
+            address: result.extractedData.address,
+            city: result.extractedData.city,
+            state: result.extractedData.state,
+            zip: result.extractedData.zip,
+            nameVerified: result.nameVerified,
+            addressVerified: result.addressVerified
+          });
+        } catch (melissaError) {
+          console.error('Error with Melissa lookup:', melissaError);
+          result.melissaLookupAttempted = true;
+          result.needsManualReview = true;
+          result.manualReviewReasons = ["Failed to retrieve data from Melissa"];
+        }
+      } else {
+        console.log('Skipping Melissa verification - no phone number or API key');
+        result.melissaLookupAttempted = false;
+        result.needsManualReview = true;
+        result.manualReviewReasons = ["No phone number or Melissa API key available"];
+      }
+      
+      // Step 3: Transcribe audio with Deepgram
+      const transcription = await getTranscription(file);
+      setTranscript(transcription);
+      
+      // Step 4: Use OpenAI to validate the lead based on transcript and Melissa data
+      // Pass both the transcript and the Melissa data to OpenAI
+      const openAIResult = await validateLeadWithOpenAI(
+        transcription, 
+        phoneNumber,
+        {
+          melissaData: {
             firstName: result.extractedData.firstName,
             lastName: result.extractedData.lastName,
             address: result.extractedData.address,
@@ -164,90 +175,29 @@ const App: React.FC = () => {
             zip: result.extractedData.zip,
             nameVerified: result.nameVerified,
             addressVerified: result.addressVerified,
-          });
-        } catch (melissaError) {
-          console.error('Error with Melissa lookup:', melissaError);
-          result.melissaLookupAttempted = false;
-          result.needsManualReview = true;
-          result.manualReviewReasons = ['Failed to retrieve data from Melissa'];
-        }
-      } else {
-        console.log('Skipping Melissa verification - no phone number');
-        result.melissaLookupAttempted = false;
-        result.needsManualReview = true;
-        result.manualReviewReasons = ['No phone number available'];
-      }
-
-      const transcription = await getTranscription(file);
-      setTranscript(transcription);
-
-      const melissaContext = melissaData?.melissaData
-        ? {
-            firstName: melissaData.melissaData.firstName,
-            lastName: melissaData.melissaData.lastName,
-            address: melissaData.melissaData.address,
-            city: melissaData.melissaData.city,
-            state: melissaData.melissaData.state,
-            zip: melissaData.melissaData.zip,
-            email: melissaData.melissaData.email,
-            dob: melissaData.melissaData.dob,
-            nameVerified: melissaData.isNameVerified,
-            addressVerified: melissaData.isAddressVerified,
-            phoneVerified: melissaData.melissaLookupAttempted,
-            phoneNumber: phoneNumber,
+            phoneVerified: result.melissaLookupAttempted
           }
-        : undefined;
-
-      const openAIResult = await axios.post(
-        'https://api.openai.com/v1/chat/completions',
-        {
-          model: 'gpt-3.5-turbo',
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a lead validation assistant. Validate the lead based on the transcript and provided data.',
-            },
-            {
-              role: 'user',
-              content: `Transcript: ${transcription}\nPhone Number: ${phoneNumber}\nMelissa Data: ${JSON.stringify(melissaContext)}`,
-            },
-          ],
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.REACT_APP_OPENAI_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
         }
       );
-
-      if (openAIResult.data.result) {
-        const mergedResult: ValidationResult = {
-          ...openAIResult.data.result,
+      
+      // Step 5: Create final merged result
+      if (openAIResult) {
+        // Merge OpenAI validation results with Melissa data
+        // Keep Melissa's contact data as authoritative but use OpenAI for insurance information
+        const mergedResult = {
+          ...openAIResult,
           extractedData: {
-            ...openAIResult.data.result.extractedData,
-            firstName: result.extractedData.firstName || openAIResult.data.result.extractedData.firstName || '',
-            lastName: result.extractedData.lastName || openAIResult.data.result.extractedData.lastName || '',
-            address: result.extractedData.address || openAIResult.data.result.extractedData.address || '',
-            city: result.extractedData.city || openAIResult.data.result.extractedData.city || '',
-            state: result.extractedData.state || openAIResult.data.result.extractedData.state || '',
-            zip: result.extractedData.zip || openAIResult.data.result.extractedData.zip || '',
-            phoneNumber: phoneNumber || openAIResult.data.result.extractedData.phoneNumber || '',
-            email: melissaData?.melissaData?.email || openAIResult.data.result.extractedData.email || '',
-            dob: melissaData?.melissaData?.dob || openAIResult.data.result.extractedData.dob || '',
+            ...openAIResult.extractedData,
+            // Prioritize Melissa data for contact information
+            firstName: result.extractedData.firstName || openAIResult.extractedData.firstName,
+            lastName: result.extractedData.lastName || openAIResult.extractedData.lastName,
+            address: result.extractedData.address || openAIResult.extractedData.address,
+            city: result.extractedData.city || openAIResult.extractedData.city,
+            state: result.extractedData.state || openAIResult.extractedData.state,
+            zip: result.extractedData.zip || openAIResult.extractedData.zip,
+            phoneNumber: phoneNumber || openAIResult.extractedData.phoneNumber
           },
-          melissaData: openAIResult.data.result.melissaData || {
-            firstName: melissaData?.melissaData?.firstName,
-            lastName: melissaData?.melissaData?.lastName,
-            address: melissaData?.melissaData?.address,
-            city: melissaData?.melissaData?.city,
-            state: melissaData?.melissaData?.state,
-            zip: melissaData?.melissaData?.zip,
-            phoneNumber: phoneNumber,
-            email: melissaData?.melissaData?.email,
-            dob: melissaData?.melissaData?.dob,
-            isVerified: melissaData?.isNameVerified || melissaData?.isAddressVerified || false,
-          },
+          // Preserve metadata about data origins
           nameFromMelissa: result.nameFromMelissa,
           addressFromMelissa: result.addressFromMelissa,
           nameVerified: result.nameVerified,
@@ -257,9 +207,10 @@ const App: React.FC = () => {
           melissaNameFound: result.melissaNameFound,
           suggestedAddress: result.suggestedAddress,
           suggestedName: result.suggestedName,
-          invalidZip: result.invalidZip,
+          invalidZip: result.invalidZip
         };
-
+        
+        // Transfer any manual review reasons
         if (result.manualReviewReasons && result.manualReviewReasons.length > 0) {
           if (!mergedResult.manualReviewReasons) {
             mergedResult.manualReviewReasons = [];
@@ -267,45 +218,39 @@ const App: React.FC = () => {
           mergedResult.manualReviewReasons.push(...result.manualReviewReasons);
           mergedResult.needsManualReview = true;
         }
-
-        if (
-          openAIResult.data.result.extractedData.firstName &&
-          result.extractedData.firstName &&
-          openAIResult.data.result.extractedData.firstName.toLowerCase() !== result.extractedData.firstName.toLowerCase()
-        ) {
-          mergedResult.transcriptFirstName = openAIResult.data.result.extractedData.firstName;
+        
+        // Store transcript data for comparison if it differs from Melissa
+        if (openAIResult.extractedData.firstName && 
+            result.extractedData.firstName && 
+            openAIResult.extractedData.firstName.toLowerCase() !== result.extractedData.firstName.toLowerCase()) {
+          mergedResult.transcriptFirstName = openAIResult.extractedData.firstName;
         }
-
-        if (
-          openAIResult.data.result.extractedData.lastName &&
-          result.extractedData.lastName &&
-          openAIResult.data.result.extractedData.lastName.toLowerCase() !== result.extractedData.lastName.toLowerCase()
-        ) {
-          mergedResult.transcriptLastName = openAIResult.data.result.extractedData.lastName;
+        
+        if (openAIResult.extractedData.lastName && 
+            result.extractedData.lastName && 
+            openAIResult.extractedData.lastName.toLowerCase() !== result.extractedData.lastName.toLowerCase()) {
+          mergedResult.transcriptLastName = openAIResult.extractedData.lastName;
         }
-
-        if (
-          openAIResult.data.result.extractedData.address &&
-          result.extractedData.address &&
-          openAIResult.data.result.extractedData.address.toLowerCase() !== result.extractedData.address.toLowerCase()
-        ) {
-          mergedResult.transcriptAddress = openAIResult.data.result.extractedData.address;
+        
+        if (openAIResult.extractedData.address && 
+            result.extractedData.address && 
+            openAIResult.extractedData.address.toLowerCase() !== result.extractedData.address.toLowerCase()) {
+          mergedResult.transcriptAddress = openAIResult.extractedData.address;
         }
-
-        if (
-          openAIResult.data.result.extractedData.zip &&
-          result.extractedData.zip &&
-          openAIResult.data.result.extractedData.zip !== result.extractedData.zip
-        ) {
-          mergedResult.transcriptZip = openAIResult.data.result.extractedData.zip;
+        
+        if (openAIResult.extractedData.zip && 
+            result.extractedData.zip && 
+            openAIResult.extractedData.zip !== result.extractedData.zip) {
+          mergedResult.transcriptZip = openAIResult.extractedData.zip;
         }
-
+        
+        // Flag discrepancies for manual review
         const discrepancies = [];
-        if (mergedResult.transcriptFirstName) discrepancies.push('First name differs between Melissa and transcript');
-        if (mergedResult.transcriptLastName) discrepancies.push('Last name differs between Melissa and transcript');
-        if (mergedResult.transcriptAddress) discrepancies.push('Address differs between Melissa and transcript');
-        if (mergedResult.transcriptZip) discrepancies.push('ZIP code differs between Melissa and transcript');
-
+        if (mergedResult.transcriptFirstName) discrepancies.push("First name differs between Melissa and transcript");
+        if (mergedResult.transcriptLastName) discrepancies.push("Last name differs between Melissa and transcript");
+        if (mergedResult.transcriptAddress) discrepancies.push("Address differs between Melissa and transcript");
+        if (mergedResult.transcriptZip) discrepancies.push("ZIP code differs between Melissa and transcript");
+        
         if (discrepancies.length > 0) {
           if (!mergedResult.manualReviewReasons) {
             mergedResult.manualReviewReasons = [];
@@ -313,12 +258,14 @@ const App: React.FC = () => {
           mergedResult.manualReviewReasons.push(...discrepancies);
           mergedResult.needsManualReview = true;
         }
-
+        
+        // Set final validation result
         setValidationResult(mergedResult);
-        console.log('Final merged validation result:', mergedResult);
+        console.log("Final merged validation result:", mergedResult);
       } else {
+        // If OpenAI didn't return results, just use what we have from Melissa
         setValidationResult(result);
-        console.log('Using Melissa-only validation result:', result);
+        console.log("Using Melissa-only validation result:", result);
       }
     } catch (error) {
       console.error('Error processing file:', error);
@@ -328,34 +275,48 @@ const App: React.FC = () => {
     }
   };
 
+  // Get transcription from Deepgram API
+  const getTranscription = async (file: File): Promise<string> => {
+    try {
+      const transcript = await transcribeAudio(file);
+      console.log("Transcription successful:", transcript);
+      return transcript;
+    } catch (error) {
+      console.error('Error with Deepgram transcription:', error);
+      alert('Error transcribing audio: ' + (error as Error).message);
+      throw error;
+    }
+  };
+
   return (
     <div className="app-container">
       <header>
         <div className="logo">
-          <h1>
-            QUIN<span>AI</span>
-          </h1>
+          <h1>QUIN<span>AI</span></h1>
         </div>
       </header>
-
+      
       <main className="content">
         <div className="qa-container">
           <FileUpload onFileSelect={processFile} />
-
+          
           <div className="result-container">
             <h2>AI QA Result{isLoading ? '...' : ''}</h2>
-
+            
             {isLoading && (
               <div className="loading">
                 <div className="spinner"></div>
                 <p>Processing audio file...</p>
               </div>
             )}
-
+            
             {!isLoading && validationResult && (
-              <ValidationResultComponent result={validationResult} transcript={transcript} />
+              <ValidationResultComponent 
+                result={validationResult}
+                transcript={transcript} 
+              />
             )}
-
+            
             {!isLoading && !validationResult && (
               <div className="no-result">
                 <p>Upload an audio file to see QA results</p>

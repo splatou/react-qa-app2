@@ -180,7 +180,7 @@ const ValidationResult: React.FC<ValidationResultProps> = ({ result, transcript 
             <span className="value">
               {(result.transcriptData?.firstName || result.transcriptData?.lastName) ? (
                 <>
-                  {`${result.transcriptData.firstName || ''} ${result.transcriptData.lastName || ''}`.trim()}
+                  {`${result.transcriptData?.firstName || ''} ${result.transcriptData?.lastName || ''}`.trim()}
                   {result.verification?.nameMatches === false && result.transcriptData?.firstName && !result.transcriptData?.lastName && (
                     <span className="name-note">
                       (Only first name provided in transcript)
@@ -193,10 +193,10 @@ const ValidationResult: React.FC<ValidationResultProps> = ({ result, transcript 
             </span>
             {getVerificationBadge(
               result.verification?.nameMatches,
-              `${result.transcriptData?.firstName || ''} ${result.transcriptData.lastName || ''}`.trim(),
-              `${result.melissaData?.firstName || ''} ${result.melissaData.lastName || ''}`.trim(),
-              `Transcript name (${result.transcriptData?.firstName || ''} ${result.transcriptData.lastName || ''}`.trim() +
-                `) does not match Melissa name (${result.melissaData?.firstName || ''} ${result.melissaData.lastName || ''}`.trim() + `)`
+              `${result.transcriptData?.firstName || ''} ${result.transcriptData?.lastName || ''}`.trim(),
+              `${result.melissaData?.firstName || ''} ${result.melissaData?.lastName || ''}`.trim(),
+              `Transcript name (${result.transcriptData?.firstName || ''} ${result.transcriptData?.lastName || ''}`.trim() +
+                `) does not match Melissa name (${result.melissaData?.firstName || ''} ${result.melissaData?.lastName || ''}`.trim() + `)`
             )}
           </div>
 
@@ -274,7 +274,7 @@ const ValidationResult: React.FC<ValidationResultProps> = ({ result, transcript 
               <span className="label">Name:</span>
               <span className="value">
                 {(result.melissaData?.firstName || result.melissaData?.lastName) ? (
-                  `${result.melissaData.firstName || ''} ${result.melissaData.lastName || ''}`.trim()
+                  `${result.melissaData?.firstName || ''} ${result.melissaData?.lastName || ''}`.trim()
                 ) : (
                   <span className="not-detected">Not Found</span>
                 )}
